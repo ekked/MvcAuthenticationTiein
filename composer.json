@@ -33,6 +33,6 @@
     },
     "require-dev": {
         "zetacomponents/unit-test": "*",
-        "phpunit/phpunit": "~9.0"
+        "phpunit/phpunit": "^9.1"
     }
 }
