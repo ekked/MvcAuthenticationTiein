@@ -186,6 +186,74 @@ class ezcMvcAuthenticationFilterTest extends ezcTestCase
         $this->assertEquals( md5( 'qwerty' ), $this->storedPassword( 'jan@example.com' ) );
     }
 
+    private function createMd5SizedUserTable()
+    {
+        $this->db->exec( 'DROP TABLE "user"' );
+        // SQLite does not enforce VARCHAR lengths, the CHECK constraint
+        // rejects a longer value like a database in strict mode does
+        $this->db->exec( 'CREATE TABLE "user" ( "email" VARCHAR(255) PRIMARY KEY, "name" VARCHAR(255), "password" VARCHAR(32) CHECK ( length( "password" ) <= 32 ) )' );
+    }
+
+    public function testLoginLegacyMd5HashColumnTooShortRejected()
+    {
+        $this->createMd5SizedUserTable();
+        $this->insertUser( 'jan@example.com', md5( 'qwerty' ) );
+
+        $filter = new ezcMvcAuthenticationFilter();
+        $this->assertTrue( $this->login( $filter, 'jan@example.com', 'qwerty' ) );
+        $this->assertEquals( md5( 'qwerty' ), $this->storedPassword( 'jan@example.com' ) );
+
+        $_SESSION = array();
+        $this->assertTrue( $this->login( $filter, 'jan@example.com', 'qwerty' ) );
+        $_SESSION = array();
+        $this->assertFalse( $this->login( $filter, 'jan@example.com', 'wrong' ) );
+
+        $_SESSION = array();
+        $this->assertTrue( $this->login( new ezcMvcAuthenticationFilter(), 'jan@example.com', 'qwerty' ) );
+        $this->assertEquals( md5( 'qwerty' ), $this->storedPassword( 'jan@example.com' ) );
+    }
+
+    public function testLoginLegacyMd5HashColumnTooShortTruncated()
+    {
+        $this->db->exec( 'DROP TABLE "user"' );
+        $this->db->exec( 'CREATE TABLE "user" ( "email" VARCHAR(255) PRIMARY KEY, "name" VARCHAR(255), "password" VARCHAR(32) )' );
+        // truncates like a database that is not in strict mode
+        $this->db->exec( 'CREATE TRIGGER "truncate_password" AFTER UPDATE OF "password" ON "user" WHEN length( NEW."password" ) > 32 ' .
+                         'BEGIN UPDATE "user" SET "password" = substr( NEW."password", 1, 32 ) WHERE "email" = NEW."email"; END' );
+        $this->insertUser( 'jan@example.com', md5( 'qwerty' ) );
+
+        $filter = new ezcMvcAuthenticationFilter();
+        $this->assertTrue( $this->login( $filter, 'jan@example.com', 'qwerty' ) );
+        $this->assertEquals( md5( 'qwerty' ), $this->storedPassword( 'jan@example.com' ) );
+
+        $_SESSION = array();
+        $this->assertTrue( $this->login( new ezcMvcAuthenticationFilter(), 'jan@example.com', 'qwerty' ) );
+        $this->assertEquals( md5( 'qwerty' ), $this->storedPassword( 'jan@example.com' ) );
+    }
+
+    public function testLoginLegacyMd5HashRehashDisabled()
+    {
+        $this->insertUser( 'jan@example.com', md5( 'qwerty' ) );
+        $filter = new ezcMvcAuthenticationFilter( new ezcMvcAuthenticationFilterOptions( array( 'rehashPasswords' => false ) ) );
+        $this->assertTrue( $this->login( $filter, 'jan@example.com', 'qwerty' ) );
+        $this->assertEquals( md5( 'qwerty' ), $this->storedPassword( 'jan@example.com' ) );
+    }
+
+    public function testOptionRehashPasswords()
+    {
+        $options = new ezcMvcAuthenticationFilterOptions();
+        $this->assertTrue( $options->rehashPasswords );
+        try
+        {
+            $options->rehashPasswords = 'no';
+            $this->fail( 'Expected exception was not thrown.' );
+        }
+        catch ( ezcBaseValueException $e )
+        {
+            $this->assertStringContainsString( 'rehashPasswords', $e->getMessage() );
+        }
+    }
+
     public function testLoginOverriddenDeterministicHash()
     {
         $this->insertUser( 'jan@example.com', sha1( 'qwerty' ) );
